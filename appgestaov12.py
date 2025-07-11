@@ -324,57 +324,104 @@ elif st.session_state.authenticated:
 
                             st.success(f"✅ Arquivo `{filename}` salvo com sucesso.")
                             log_action(username, "upload", file_path)
-    # VISUALIZAÇÃO PADRÃO POR PROJETO (hierarquia completa)
-    if "download" in user_permissions or "view" in user_permissions:
-        st.markdown("### 📂 Navegação Completa")
+    # SIDEBAR: "Meus Projetos" e "Meus Clientes"
+    st.sidebar.markdown("### 🔎 Navegação Rápida")
 
-        for proj in sorted(os.listdir(BASE_DIR)):
-            if proj not in user_projects:
-                continue
-
+    if st.sidebar.button("📁 Meus Projetos"):
+        for proj in sorted(user_projects):
             proj_path = os.path.join(BASE_DIR, proj)
             if not os.path.isdir(proj_path): continue
 
-            with st.expander(f"📁 Projeto: {proj}", expanded=False):
+            with st.expander(f"📁 Projeto: {proj}"):
                 for disc in sorted(os.listdir(proj_path)):
                     disc_path = os.path.join(proj_path, disc)
                     if not os.path.isdir(disc_path): continue
 
-                    with st.expander(f"📂 Disciplina: {disc}", expanded=False):
-                        for fase in sorted(os.listdir(disc_path)):
-                            fase_path = os.path.join(disc_path, fase)
-                            if not os.path.isdir(fase_path): continue
+                    for fase in sorted(os.listdir(disc_path)):
+                        fase_path = os.path.join(disc_path, fase)
+                        if not os.path.isdir(fase_path): continue
 
-                            with st.expander(f"📄 Fase: {fase}", expanded=False):
+                        for file in sorted(os.listdir(fase_path)):
+                            full_path = os.path.join(fase_path, file)
+                            if os.path.isdir(full_path): continue
+
+                            st.markdown(f"- `{file}`")
+                            with open(full_path, "rb") as f:
+                                if file.lower().endswith(".pdf"):
+                                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                                    href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
+                                    if st.button("👁️ Visualizar PDF", key=hash_key("proj_btn_" + full_path)):
+                                        st.markdown(href, unsafe_allow_html=True)
+                                f.seek(0)
+                                if "download" in user_permissions:
+                                    st.download_button("📥 Baixar", f, file_name=file, key=hash_key("proj_dl_" + full_path))
+
+                            # Botão comentário simples
+                            if st.button("💬 Comentar", key=hash_key("proj_comment_" + full_path)):
+                                comment_text = st.text_area("Digite seu comentário", key=hash_key("proj_comment_area_" + full_path))
+                                if st.button("Salvar Comentário", key=hash_key("proj_save_comment_" + full_path)):
+                                    if comment_text.strip():
+                                        salvar_comentario(username, full_path, comment_text.strip())
+                                        st.success("Comentário salvo.")
+                                        st.experimental_rerun()
+
+                            # Exibir comentários existentes
+                            if st.button("💬 Comentários", key=hash_key("proj_show_comments_" + full_path)):
+                                comentarios = obter_comentarios(full_path)
+                                if comentarios:
+                                    for user_c, txt_c, ts_c in comentarios:
+                                        st.info(f"{ts_c} - {user_c}: {txt_c}")
+                                else:
+                                    st.warning("Nenhum comentário registrado.")
+
+    if st.sidebar.button("🏢 Meus Clientes"):
+        meus_clientes = set()
+        for proj in user_projects:
+            res = c.execute("SELECT client FROM projects WHERE name=?", (proj,)).fetchone()
+            if res:
+                meus_clientes.add(res[0])
+
+        for cliente in sorted(meus_clientes):
+            with st.expander(f"🏢 Cliente: {cliente}"):
+                projetos_cliente = [p[0] for p in c.execute("SELECT name FROM projects WHERE client=?", (cliente,)).fetchall()]
+                projetos_cliente = [p for p in projetos_cliente if p in user_projects]
+                for proj in sorted(projetos_cliente):
+                    proj_path = os.path.join(BASE_DIR, proj)
+                    if not os.path.isdir(proj_path): continue
+
+                    with st.expander(f"📁 Projeto: {proj}"):
+                        for disc in sorted(os.listdir(proj_path)):
+                            disc_path = os.path.join(proj_path, disc)
+                            if not os.path.isdir(disc_path): continue
+
+                            for fase in sorted(os.listdir(disc_path)):
+                                fase_path = os.path.join(disc_path, fase)
+                                if not os.path.isdir(fase_path): continue
+
                                 for file in sorted(os.listdir(fase_path)):
                                     full_path = os.path.join(fase_path, file)
                                     if os.path.isdir(full_path): continue
 
-                                    icon = file_icon(file)
-                                    st.markdown(f"- {icon} `{file}`")
-
-                                    # Botões de visualização/download
+                                    st.markdown(f"- `{file}`")
                                     with open(full_path, "rb") as f:
-                                        b64 = base64.b64encode(f.read()).decode("utf-8")
                                         if file.lower().endswith(".pdf"):
+                                            b64 = base64.b64encode(f.read()).decode("utf-8")
                                             href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                                            if st.button("👁️ Visualizar PDF", key=hash_key("btn_" + full_path)):
+                                            if st.button("👁️ Visualizar PDF", key=hash_key("cli_btn_" + full_path)):
                                                 st.markdown(href, unsafe_allow_html=True)
                                         f.seek(0)
                                         if "download" in user_permissions:
-                                            st.download_button("📥 Baixar", f, file_name=file, key=hash_key("dl_" + full_path))
+                                            st.download_button("📥 Baixar", f, file_name=file, key=hash_key("cli_dl_" + full_path))
 
-                                    # Botão de comentário simples
-                                    if st.button("💬 Comentar", key=hash_key("comment_btn_" + full_path)):
-                                        comment_text = st.text_area("Digite seu comentário", key=hash_key("comment_area_" + full_path))
-                                        if st.button("Salvar Comentário", key=hash_key("save_comment_" + full_path)):
+                                    if st.button("💬 Comentar", key=hash_key("cli_comment_" + full_path)):
+                                        comment_text = st.text_area("Digite seu comentário", key=hash_key("cli_comment_area_" + full_path))
+                                        if st.button("Salvar Comentário", key=hash_key("cli_save_comment_" + full_path)):
                                             if comment_text.strip():
                                                 salvar_comentario(username, full_path, comment_text.strip())
                                                 st.success("Comentário salvo.")
                                                 st.experimental_rerun()
 
-                                    # Botão para listar comentários existentes
-                                    if st.button("💬 Comentários", key=hash_key("show_comments_" + full_path)):
+                                    if st.button("💬 Comentários", key=hash_key("cli_show_comments_" + full_path)):
                                         comentarios = obter_comentarios(full_path)
                                         if comentarios:
                                             for user_c, txt_c, ts_c in comentarios:
@@ -436,6 +483,16 @@ elif st.session_state.authenticated:
                             if "download" in user_permissions:
                                 st.download_button("📥 Baixar Arquivo", f, file_name=os.path.basename(file), key=hash_key("othk_" + file))
                     log_action(username, "visualizar", file)
+
+                    # Comentários durante a pesquisa
+                    if st.button("💬 Comentários", key=hash_key("search_show_comments_" + file)):
+                        comentarios = obter_comentarios(file)
+                        if comentarios:
+                            for user_c, txt_c, ts_c in comentarios:
+                                st.info(f"{ts_c} - {user_c}: {txt_c}")
+                        else:
+                            st.warning("Nenhum comentário registrado.")
+
             else:
                 st.warning("Nenhum arquivo encontrado.")
 
