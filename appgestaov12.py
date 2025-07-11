@@ -6,7 +6,7 @@ from datetime import datetime
 import streamlit as st
 import sqlite3
 import re
-import fitz  # Para leitura de conteúdo interno dos PDFs
+import fitz
 
 # Banco de dados SQLite
 conn = sqlite3.connect('document_manager.db', check_same_thread=False)
@@ -23,6 +23,13 @@ c.execute('''CREATE TABLE IF NOT EXISTS logs (
     action TEXT,
     file TEXT
 )''')
+c.execute('''CREATE TABLE IF NOT EXISTS clients (
+    name TEXT PRIMARY KEY
+)''')
+c.execute('''CREATE TABLE IF NOT EXISTS projects (
+    name TEXT PRIMARY KEY,
+    client TEXT
+)''')
 c.execute('''CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT,
@@ -35,15 +42,15 @@ conn.commit()
 BASE_DIR = "uploads"
 os.makedirs(BASE_DIR, exist_ok=True)
 
-# Disciplinas, fases e projetos padrão
 if "disciplinas" not in st.session_state:
     st.session_state.disciplinas = ["GES", "PRO", "MEC", "MET", "CIV", "ELE", "AEI"]
 if "fases" not in st.session_state:
     st.session_state.fases = ["FEL1", "FEL2", "FEL3", "Executivo"]
 if "projetos_registrados" not in st.session_state:
     st.session_state.projetos_registrados = []
+if "clientes_registrados" not in st.session_state:
+    st.session_state.clientes_registrados = []
 
-# Utilitários
 def get_project_path(project, discipline, phase):
     path = os.path.join(BASE_DIR, project, discipline, phase)
     os.makedirs(path, exist_ok=True)
@@ -54,7 +61,6 @@ def log_action(user, action, file, note=None):
     c.execute("INSERT INTO logs (timestamp, user, action, file) VALUES (?, ?, ?, ?)",
               (datetime.now().isoformat(), user, action, log_entry))
     conn.commit()
-
 def file_icon(file_name):
     if file_name.lower().endswith(".pdf"):
         return "📄"
@@ -75,7 +81,7 @@ def extrair_info_arquivo(nome_arquivo):
         versao = f"v{match.group(3)}"
         return nome_base, revisao, versao
     return None, None, None
-# Estado da sessão
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "registration_mode" not in st.session_state:
@@ -88,7 +94,6 @@ if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
 st.title("📁 Gerenciador de Documentos Inteligente")
-
 # LOGIN
 if not st.session_state.authenticated and not st.session_state.registration_mode and not st.session_state.admin_mode:
     st.subheader("Login")
@@ -129,9 +134,9 @@ elif st.session_state.registration_mode and not st.session_state.authenticated:
                 st.error("Usuário já existe.")
             else:
                 c.execute("INSERT INTO users (username, password, projects, permissions) VALUES (?, ?, ?, ?)",
-                          (new_user, new_pass, '', ''))
+                          (new_user, new_pass, '', 'upload,view'))
                 conn.commit()
-                st.success("Usuário registrado com sucesso.")
+                st.success("Usuário registrado com permissões padrão [upload, view].")
                 st.session_state.registration_mode = False
                 st.session_state.registration_unlocked = False
                 st.rerun()
@@ -140,7 +145,7 @@ elif st.session_state.registration_mode and not st.session_state.authenticated:
         st.session_state.registration_mode = False
         st.session_state.registration_unlocked = False
         st.rerun()
-# AUTENTICAÇÃO ADMINISTRADOR
+
 elif st.session_state.admin_mode and not st.session_state.admin_authenticated:
     st.subheader("Autenticação do Administrador")
     master = st.text_input("Senha Mestra", type="password")
@@ -151,16 +156,31 @@ elif st.session_state.admin_mode and not st.session_state.admin_authenticated:
             st.rerun()
         else:
             st.error("Senha incorreta.")
-
 # PAINEL ADMINISTRATIVO
 elif st.session_state.admin_mode and st.session_state.admin_authenticated:
     st.subheader("Painel Administrativo")
-    st.markdown("### ➕ Cadastrar Projeto / Disciplina / Fase")
+
+    st.markdown("### ➕ Cadastrar Cliente")
+    novo_cliente = st.text_input("Novo Cliente")
+    if st.button("Adicionar Cliente") and novo_cliente:
+        if not c.execute("SELECT * FROM clients WHERE name=?", (novo_cliente,)).fetchone():
+            c.execute("INSERT INTO clients (name) VALUES (?)", (novo_cliente,))
+            conn.commit()
+            st.success(f"Cliente '{novo_cliente}' adicionado.")
+        else:
+            st.warning("Cliente já existe.")
+
+    st.markdown("### ➕ Cadastrar Projeto")
     novo_proj = st.text_input("Novo Projeto")
-    if st.button("Adicionar Projeto") and novo_proj:
-        if novo_proj not in st.session_state.projetos_registrados:
+    clientes = [row[0] for row in c.execute("SELECT name FROM clients").fetchall()]
+    cliente_selecionado = st.selectbox("Cliente do Projeto", clientes) if clientes else None
+
+    if st.button("Adicionar Projeto") and novo_proj and cliente_selecionado:
+        if not c.execute("SELECT * FROM projects WHERE name=?", (novo_proj,)).fetchone():
+            c.execute("INSERT INTO projects (name, client) VALUES (?, ?)", (novo_proj, cliente_selecionado))
+            conn.commit()
             st.session_state.projetos_registrados.append(novo_proj)
-            st.success(f"Projeto '{novo_proj}' adicionado.")
+            st.success(f"Projeto '{novo_proj}' vinculado ao cliente '{cliente_selecionado}' adicionado.")
         else:
             st.warning("Projeto já existe.")
 
@@ -194,18 +214,24 @@ elif st.session_state.admin_mode and st.session_state.admin_authenticated:
                 st.success(f"Usuário {user} removido.")
                 st.rerun()
         with col2:
-            projetos = st.multiselect(f"Projetos ({user})", options=st.session_state.projetos_registrados,
+            projetos = st.multiselect(f"Projetos ({user})",
+                                      options=[p[0] for p in c.execute("SELECT name FROM projects").fetchall()],
                                       default=projetos_atuais.split(',') if projetos_atuais else [],
                                       key=hash_key(f"proj_{user}"))
-            permissoes = st.multiselect(f"Permissões ({user})", options=["upload", "download", "view"],
+            permissoes = st.multiselect(f"Permissões ({user})",
+                                        options=["upload", "download", "view"],
                                         default=permissoes_atuais.split(',') if permissoes_atuais else [],
                                         key=hash_key(f"perm_{user}"))
             nova_senha = st.text_input(f"Nova senha ({user})", key=hash_key(f"senha_{user}"))
-            if st.button(f"Atualizar senha {user}", key=hash_key(f"update_{user}")):
-                c.execute("UPDATE users SET password=?, projects=?, permissions=? WHERE username=?",
-                          (nova_senha, ','.join(projetos), ','.join(permissoes), user))
+            if st.button(f"Atualizar permissões/projetos {user}", key=hash_key(f"update_perm_{user}")):
+                if nova_senha:
+                    c.execute("UPDATE users SET password=?, projects=?, permissions=? WHERE username=?",
+                              (nova_senha, ','.join(projetos), ','.join(permissoes), user))
+                else:
+                    c.execute("UPDATE users SET projects=?, permissions=? WHERE username=?",
+                              (','.join(projetos), ','.join(permissoes), user))
                 conn.commit()
-                st.success(f"Usuário {user} atualizado.")
+                st.success(f"Permissões/projetos atualizados para {user}.")
                 st.rerun()
 
     if st.button("Sair do Painel Admin"):
@@ -225,12 +251,12 @@ elif st.session_state.authenticated:
         st.session_state.username = ""
         st.rerun()
 
-    # UPLOAD COM CONTROLE DE REVISÃO, VERSÃO E FEEDBACK
+    # UPLOAD
     if "upload" in user_permissions:
         st.markdown("### ⬆️ Upload de Arquivos")
         with st.form("upload_form"):
             if not user_projects:
-                st.warning("Você ainda não tem projetos atribuídos. Contate o administrador.")
+                st.warning("Você ainda não tem projetos atribuídos.")
             else:
                 project = st.selectbox("Projeto", user_projects)
                 discipline = st.selectbox("Disciplina", st.session_state.disciplinas)
@@ -243,7 +269,7 @@ elif st.session_state.authenticated:
                     if nome_base and revisao and versao:
                         st.info(f"🧠 Detecção automática: `{uploaded_file.name}` → Revisão: **{revisao}**, Versão: **{versao}**")
                     else:
-                        st.error("❌ O nome do arquivo deve conter algo como rXvY (ex: r1v2) para controle de revisão e versão.")
+                        st.error("❌ Nome do arquivo deve conter rXvY (ex: r1v2).")
 
                 submitted = st.form_submit_button("Enviar")
                 if submitted and uploaded_file:
@@ -253,7 +279,7 @@ elif st.session_state.authenticated:
 
                     nome_base, revisao, versao = extrair_info_arquivo(filename)
                     if not nome_base:
-                        st.error("O nome do arquivo deve conter rXvY (ex: r1v2) para controle de revisão e versão.")
+                        st.error("Nome do arquivo deve conter rXvY.")
                     else:
                         arquivos_existentes = os.listdir(path)
                         nomes_existentes = [f for f in arquivos_existentes if f.startswith(nome_base)]
@@ -286,11 +312,11 @@ elif st.session_state.authenticated:
 
                             st.success(f"✅ Arquivo `{filename}` salvo com sucesso.")
                             log_action(username, "upload", file_path)
-    # VISUALIZAÇÃO HIERÁRQUICA DOS DOCUMENTOS
+    # VISUALIZAÇÃO DE DOCUMENTOS E COMENTÁRIOS
     if "download" in user_permissions or "view" in user_permissions:
-        st.markdown("### 📂 Navegação por Projetos")
+        st.markdown("### 📂 Meus Projetos")
 
-        for proj in sorted(os.listdir(BASE_DIR)):
+        for proj in sorted(user_projects):
             proj_path = os.path.join(BASE_DIR, proj)
             if not os.path.isdir(proj_path): continue
 
@@ -307,34 +333,20 @@ elif st.session_state.authenticated:
                             with st.expander(f"📄 Fase: {fase}", expanded=False):
                                 for file in sorted(os.listdir(fase_path)):
                                     full_path = os.path.join(fase_path, file)
-                                    if os.path.isdir(full_path):
-                                        continue
+                                    if os.path.isdir(full_path): continue
 
-                                    icon = file_icon(file)
-                                    st.markdown(f"- {icon} `{file}`")
-
+                                    st.markdown(f"- `{file}`")
                                     with open(full_path, "rb") as f:
-                                        b64 = base64.b64encode(f.read()).decode("utf-8")
                                         if file.lower().endswith(".pdf"):
+                                            b64 = base64.b64encode(f.read()).decode("utf-8")
                                             href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                                            if st.button("👁️ Visualizar PDF", key=hash_key("btn_" + full_path)):
+                                            if st.button("👁️ Visualizar PDF", key=hash_key(f"btn_{full_path}")):
                                                 st.markdown(href, unsafe_allow_html=True)
-                                            f.seek(0)
-                                            if "download" in user_permissions:
-                                                st.download_button("📥 Baixar PDF", f, file_name=file, mime="application/pdf", key=hash_key("dl_" + full_path))
-                                        elif file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                                            try:
-                                                st.image(f.read(), caption=file)
-                                            except Exception as e:
-                                                st.warning(f"Erro ao exibir a imagem '{file}': {str(e)}")
-                                            f.seek(0)
-                                            if "download" in user_permissions:
-                                                st.download_button("📥 Baixar Imagem", f, file_name=file, key=hash_key("img_" + full_path))
-                                        else:
-                                            if "download" in user_permissions:
-                                                st.download_button("📥 Baixar Arquivo", f, file_name=file, key=hash_key("oth_" + full_path))
+                                        f.seek(0)
+                                        if "download" in user_permissions:
+                                            st.download_button("📥 Baixar", f, file_name=file, key=hash_key(f"dl_{full_path}"))
 
-                                    # 💬 Comentários para este arquivo
+                                    # 💬 COMENTÁRIOS ASSOCIADOS AO ARQUIVO
                                     st.markdown("💬 Comentários:")
                                     comments = c.execute("SELECT username, comment, timestamp FROM comments WHERE file_path=? ORDER BY timestamp DESC", (full_path,)).fetchall()
                                     if comments:
@@ -344,91 +356,69 @@ elif st.session_state.authenticated:
                                         st.write("Nenhum comentário ainda.")
 
                                     with st.expander("➕ Adicionar comentário"):
-                                        new_comment = st.text_area(f"Comentário para `{file}`", key=hash_key("comment_" + full_path))
-                                        if st.button("Salvar comentário", key=hash_key("save_comment_" + full_path)):
+                                        new_comment = st.text_area(f"Comentário para `{file}`", key=hash_key(f"comment_{full_path}"))
+                                        if st.button("Salvar comentário", key=hash_key(f"save_comment_{full_path}")):
                                             if new_comment.strip():
                                                 c.execute("INSERT INTO comments (username, file_path, comment, timestamp) VALUES (?, ?, ?, ?)",
                                                           (username, full_path, new_comment.strip(), datetime.now().isoformat()))
                                                 conn.commit()
                                                 st.success("Comentário salvo.")
                                                 st.rerun()
-                                    nome_base, revisao_atual, versao_atual = extrair_info_arquivo(file)
-                                    pasta_revisoes = os.path.join(fase_path, "Revisoes", nome_base)
-                                    if os.path.exists(pasta_revisoes):
-                                        revisoes_antigas = sorted(os.listdir(pasta_revisoes))
-                                        if revisoes_antigas:
-                                            with st.expander("⬅️ Revisões anteriores"):
-                                                for rev_file in revisoes_antigas:
-                                                    rev_path = os.path.join(pasta_revisoes, rev_file)
-                                                    if os.path.isdir(rev_path):
-                                                        continue
-                                                    st.markdown(f"• `{rev_file}`")
-                                                    with open(rev_path, "rb") as rf:
-                                                        b64_rev = base64.b64encode(rf.read()).decode("utf-8")
-                                                        if rev_file.lower().endswith(".pdf"):
-                                                            href_rev = f'<a href="data:application/pdf;base64,{b64_rev}" target="_blank">👁️ Visualizar PDF</a>'
-                                                            if st.button("👁️ Visualizar PDF", key=hash_key("btn_rev_" + rev_path)):
-                                                                st.markdown(href_rev, unsafe_allow_html=True)
-                                                            rf.seek(0)
-                                                            if "download" in user_permissions:
-                                                                st.download_button("📥 Baixar", rf, file_name=rev_file, mime="application/pdf", key=hash_key("dl_rev_" + rev_path))
-                                                        else:
-                                                            if "download" in user_permissions:
-                                                                st.download_button("📥 Baixar", rf, file_name=rev_file, key=hash_key("dl_rev_" + rev_path))
 
-                                    log_action(username, "visualizar", full_path)
+    # 🔍 PESQUISA POR PALAVRA-CHAVE (NOME + CONTEÚDO PDF)
+    st.markdown("### 🔍 Pesquisa de Documentos")
+    keyword = st.text_input("Buscar por palavra-chave")
+    if keyword:
+        matched = []
+        for root, dirs, files in os.walk(BASE_DIR):
+            for file in files:
+                full_path = os.path.join(root, file)
+                if not os.path.isfile(full_path):
+                    continue
 
-    # 🔍 PESQUISA POR PALAVRA-CHAVE
-    if "download" in user_permissions or "view" in user_permissions:
-        st.markdown("### 🔍 Pesquisa de Documentos")
-        keyword = st.text_input("Buscar por palavra-chave")
-        if keyword:
-            matched = []
-            for root, dirs, files in os.walk(BASE_DIR):
-                for file in files:
-                    full_path = os.path.join(root, file)
-                    if not os.path.isfile(full_path):
-                        continue
-                    match_found = False
-                    if keyword.lower() in file.lower():
-                        match_found = True
-                    elif file.lower().endswith(".pdf"):
-                        try:
-                            doc = fitz.open(full_path)
-                            text = ""
-                            for page in doc:
-                                text += page.get_text()
-                            doc.close()
-                            if keyword.lower() in text.lower():
-                                match_found = True
-                        except Exception as e:
-                            st.warning(f"Erro ao ler PDF `{file}`: {str(e)}")
-                    if match_found:
-                        matched.append(full_path)
+                rel_path_parts = os.path.relpath(full_path, BASE_DIR).split(os.sep)
+                if rel_path_parts[0] not in user_projects:
+                    continue
 
-            if matched:
-                for file in matched:
-                    st.write(f"📄 {os.path.relpath(file, BASE_DIR)}")
-                    with open(file, "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode("utf-8")
-                        if file.lower().endswith(".pdf"):
-                            href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                            if st.button("👁️ Visualizar PDF", key=hash_key("btnk_" + file)):
-                                st.markdown(href, unsafe_allow_html=True)
-                            f.seek(0)
-                            if "download" in user_permissions:
-                                st.download_button("📥 Baixar PDF", f, file_name=os.path.basename(file), mime="application/pdf", key=hash_key("dlk_" + file))
-                        elif file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                            st.image(f.read(), caption=os.path.basename(file))
-                            f.seek(0)
-                            if "download" in user_permissions:
-                                st.download_button("📥 Baixar Imagem", f, file_name=os.path.basename(file), key=hash_key("imgk_" + file))
-                        else:
-                            if "download" in user_permissions:
-                                st.download_button("📥 Baixar Arquivo", f, file_name=os.path.basename(file), key=hash_key("othk_" + file))
-                    log_action(username, "visualizar", file)
-            else:
-                st.warning("Nenhum arquivo encontrado.")
+                match_found = False
+                if keyword.lower() in file.lower():
+                    match_found = True
+                elif file.lower().endswith(".pdf"):
+                    try:
+                        doc = fitz.open(full_path)
+                        text = "".join(page.get_text() for page in doc)
+                        doc.close()
+                        if keyword.lower() in text.lower():
+                            match_found = True
+                    except Exception as e:
+                        st.warning(f"Erro ao ler PDF `{file}`: {str(e)}")
+
+                if match_found:
+                    matched.append(full_path)
+
+        if matched:
+            for file in matched:
+                st.write(f"📄 {os.path.relpath(file, BASE_DIR)}")
+                with open(file, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                    if file.lower().endswith(".pdf"):
+                        href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
+                        if st.button("👁️ Visualizar PDF", key=hash_key(f"btnk_{file}")):
+                            st.markdown(href, unsafe_allow_html=True)
+                        f.seek(0)
+                        if "download" in user_permissions:
+                            st.download_button("📥 Baixar PDF", f, file_name=os.path.basename(file), mime="application/pdf", key=hash_key(f"dlk_{file}"))
+                    elif file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        st.image(f.read(), caption=os.path.basename(file))
+                        f.seek(0)
+                        if "download" in user_permissions:
+                            st.download_button("📥 Baixar Imagem", f, file_name=os.path.basename(file), key=hash_key(f"imgk_{file}"))
+                    else:
+                        if "download" in user_permissions:
+                            st.download_button("📥 Baixar Arquivo", f, file_name=os.path.basename(file), key=hash_key(f"othk_{file}"))
+                log_action(username, "visualizar", file)
+        else:
+            st.warning("Nenhum arquivo encontrado.")
 
     # 📜 HISTÓRICO DE AÇÕES
     st.markdown("### 📜 Histórico de Ações")
