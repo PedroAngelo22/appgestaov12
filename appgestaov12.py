@@ -101,6 +101,8 @@ if "admin_mode" not in st.session_state:
     st.session_state.admin_mode = False
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
+if "comment_inputs" not in st.session_state:
+    st.session_state.comment_inputs = {}
 
 st.title("📁 Gerenciador de Documentos Inteligente")
 # LOGIN
@@ -324,10 +326,10 @@ elif st.session_state.authenticated:
 
                             st.success(f"✅ Arquivo `{filename}` salvo com sucesso.")
                             log_action(username, "upload", file_path)
-    # SIDEBAR: "Meus Projetos" e "Meus Clientes"
-    st.sidebar.markdown("### 🔎 Navegação Rápida")
+    # VISUALIZAÇÃO COMPLETA POR PROJETO → DISCIPLINA → FASE
+    if "download" in user_permissions or "view" in user_permissions:
+        st.markdown("### 📂 Navegação Completa")
 
-    if st.sidebar.button("📁 Meus Projetos"):
         for proj in sorted(user_projects):
             proj_path = os.path.join(BASE_DIR, proj)
             if not os.path.isdir(proj_path): continue
@@ -337,91 +339,42 @@ elif st.session_state.authenticated:
                     disc_path = os.path.join(proj_path, disc)
                     if not os.path.isdir(disc_path): continue
 
-                    for fase in sorted(os.listdir(disc_path)):
-                        fase_path = os.path.join(disc_path, fase)
-                        if not os.path.isdir(fase_path): continue
+                    with st.expander(f"📂 Disciplina: {disc}"):
+                        for fase in sorted(os.listdir(disc_path)):
+                            fase_path = os.path.join(disc_path, fase)
+                            if not os.path.isdir(fase_path): continue
 
-                        for file in sorted(os.listdir(fase_path)):
-                            full_path = os.path.join(fase_path, file)
-                            if os.path.isdir(full_path): continue
-
-                            st.markdown(f"- `{file}`")
-                            with open(full_path, "rb") as f:
-                                if file.lower().endswith(".pdf"):
-                                    b64 = base64.b64encode(f.read()).decode("utf-8")
-                                    href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                                    if st.button("👁️ Visualizar PDF", key=hash_key("proj_btn_" + full_path)):
-                                        st.markdown(href, unsafe_allow_html=True)
-                                f.seek(0)
-                                if "download" in user_permissions:
-                                    st.download_button("📥 Baixar", f, file_name=file, key=hash_key("proj_dl_" + full_path))
-
-                            # Botão comentário simples
-                            if st.button("💬 Comentar", key=hash_key("proj_comment_" + full_path)):
-                                comment_text = st.text_area("Digite seu comentário", key=hash_key("proj_comment_area_" + full_path))
-                                if st.button("Salvar Comentário", key=hash_key("proj_save_comment_" + full_path)):
-                                    if comment_text.strip():
-                                        salvar_comentario(username, full_path, comment_text.strip())
-                                        st.success("Comentário salvo.")
-                                        st.experimental_rerun()
-
-                            # Exibir comentários existentes
-                            if st.button("💬 Comentários", key=hash_key("proj_show_comments_" + full_path)):
-                                comentarios = obter_comentarios(full_path)
-                                if comentarios:
-                                    for user_c, txt_c, ts_c in comentarios:
-                                        st.info(f"{ts_c} - {user_c}: {txt_c}")
-                                else:
-                                    st.warning("Nenhum comentário registrado.")
-
-    if st.sidebar.button("🏢 Meus Clientes"):
-        meus_clientes = set()
-        for proj in user_projects:
-            res = c.execute("SELECT client FROM projects WHERE name=?", (proj,)).fetchone()
-            if res:
-                meus_clientes.add(res[0])
-
-        for cliente in sorted(meus_clientes):
-            with st.expander(f"🏢 Cliente: {cliente}"):
-                projetos_cliente = [p[0] for p in c.execute("SELECT name FROM projects WHERE client=?", (cliente,)).fetchall()]
-                projetos_cliente = [p for p in projetos_cliente if p in user_projects]
-                for proj in sorted(projetos_cliente):
-                    proj_path = os.path.join(BASE_DIR, proj)
-                    if not os.path.isdir(proj_path): continue
-
-                    with st.expander(f"📁 Projeto: {proj}"):
-                        for disc in sorted(os.listdir(proj_path)):
-                            disc_path = os.path.join(proj_path, disc)
-                            if not os.path.isdir(disc_path): continue
-
-                            for fase in sorted(os.listdir(disc_path)):
-                                fase_path = os.path.join(disc_path, fase)
-                                if not os.path.isdir(fase_path): continue
-
+                            with st.expander(f"📄 Fase: {fase}"):
                                 for file in sorted(os.listdir(fase_path)):
                                     full_path = os.path.join(fase_path, file)
                                     if os.path.isdir(full_path): continue
 
                                     st.markdown(f"- `{file}`")
-                                    with open(full_path, "rb") as f:
-                                        if file.lower().endswith(".pdf"):
+                                    key_base = hash_key(full_path)
+
+                                    # Botão Visualizar PDF
+                                    if file.lower().endswith(".pdf"):
+                                        with open(full_path, "rb") as f:
                                             b64 = base64.b64encode(f.read()).decode("utf-8")
                                             href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                                            if st.button("👁️ Visualizar PDF", key=hash_key("cli_btn_" + full_path)):
-                                                st.markdown(href, unsafe_allow_html=True)
-                                        f.seek(0)
+                                            st.markdown(href, unsafe_allow_html=True)
+
+                                    # Botão Baixar
+                                    with open(full_path, "rb") as f:
                                         if "download" in user_permissions:
-                                            st.download_button("📥 Baixar", f, file_name=file, key=hash_key("cli_dl_" + full_path))
+                                            st.download_button("📥 Baixar", f, file_name=file, key=hash_key("dl_" + full_path))
 
-                                    if st.button("💬 Comentar", key=hash_key("cli_comment_" + full_path)):
-                                        comment_text = st.text_area("Digite seu comentário", key=hash_key("cli_comment_area_" + full_path))
-                                        if st.button("Salvar Comentário", key=hash_key("cli_save_comment_" + full_path)):
-                                            if comment_text.strip():
-                                                salvar_comentario(username, full_path, comment_text.strip())
-                                                st.success("Comentário salvo.")
-                                                st.experimental_rerun()
+                                    # Campo para comentário simples
+                                    st.session_state.comment_inputs.setdefault(key_base, "")
+                                    comment_input = st.text_input(f"💬 Novo comentário ({file})", key=f"comment_input_{key_base}")
+                                    if st.button(f"Salvar comentário {file}", key=f"save_comment_{key_base}"):
+                                        if comment_input.strip():
+                                            salvar_comentario(username, full_path, comment_input.strip())
+                                            st.success("Comentário salvo.")
+                                            st.session_state.comment_inputs[key_base] = ""
 
-                                    if st.button("💬 Comentários", key=hash_key("cli_show_comments_" + full_path)):
+                                    # Mostrar comentários existentes
+                                    if st.button(f"💬 Ver comentários ({file})", key=f"show_comments_{key_base}"):
                                         comentarios = obter_comentarios(full_path)
                                         if comentarios:
                                             for user_c, txt_c, ts_c in comentarios:
@@ -464,35 +417,29 @@ elif st.session_state.authenticated:
 
             if matched:
                 for file in matched:
-                    st.write(f"📄 {os.path.relpath(file, BASE_DIR)}")
-                    with open(file, "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode("utf-8")
-                        if file.lower().endswith(".pdf"):
-                            href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                            if st.button("👁️ Visualizar PDF", key=hash_key("btnk_" + file)):
-                                st.markdown(href, unsafe_allow_html=True)
-                            f.seek(0)
-                            if "download" in user_permissions:
-                                st.download_button("📥 Baixar PDF", f, file_name=os.path.basename(file), mime="application/pdf", key=hash_key("dlk_" + file))
-                        elif file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                            st.image(f.read(), caption=os.path.basename(file))
-                            f.seek(0)
-                            if "download" in user_permissions:
-                                st.download_button("📥 Baixar Imagem", f, file_name=os.path.basename(file), key=hash_key("imgk_" + file))
-                        else:
-                            if "download" in user_permissions:
-                                st.download_button("📥 Baixar Arquivo", f, file_name=os.path.basename(file), key=hash_key("othk_" + file))
-                    log_action(username, "visualizar", file)
+                    st.markdown(f"- 📄 `{os.path.relpath(file, BASE_DIR)}`")
+                    key_base = hash_key(file)
 
-                    # Comentários durante a pesquisa
-                    if st.button("💬 Comentários", key=hash_key("search_show_comments_" + file)):
+                    # Visualizar PDF
+                    if file.lower().endswith(".pdf"):
+                        with open(file, "rb") as f:
+                            b64 = base64.b64encode(f.read()).decode("utf-8")
+                            href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
+                            st.markdown(href, unsafe_allow_html=True)
+
+                    # Download
+                    with open(file, "rb") as f:
+                        if "download" in user_permissions:
+                            st.download_button("📥 Baixar", f, file_name=os.path.basename(file), key=hash_key("dlk_" + file))
+
+                    # Mostrar comentários
+                    if st.button(f"💬 Ver comentários {os.path.basename(file)}", key=f"search_show_comments_{key_base}"):
                         comentarios = obter_comentarios(file)
                         if comentarios:
                             for user_c, txt_c, ts_c in comentarios:
                                 st.info(f"{ts_c} - {user_c}: {txt_c}")
                         else:
                             st.warning("Nenhum comentário registrado.")
-
             else:
                 st.warning("Nenhum arquivo encontrado.")
 
