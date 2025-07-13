@@ -282,15 +282,31 @@ elif st.session_state.authenticated:
                         arquivos_existentes = os.listdir(path)
                         nomes_existentes = [f for f in arquivos_existentes if f.startswith(nome_base)]
 
-                        if filename in arquivos_existentes:
-                            st.error("Arquivo com este nome completo já existe.")
-                        else:
-                            revisoes_anteriores = []
-                            for f in nomes_existentes:
+                        revisoes_anteriores = []
+                        for f in nomes_existentes:
+                            base_ant, rev_ant, ver_ant = extrair_info_arquivo(f)
+                            if base_ant == nome_base:
+                                revisoes_anteriores.append((f, rev_ant, ver_ant))
+
+                        # Verificar também revisões dentro da pasta Revisoes
+                        pasta_revisoes = os.path.join(path, "Revisoes", nome_base)
+                        if os.path.isdir(pasta_revisoes):
+                            for f in os.listdir(pasta_revisoes):
                                 base_ant, rev_ant, ver_ant = extrair_info_arquivo(f)
                                 if base_ant == nome_base:
                                     revisoes_anteriores.append((f, rev_ant, ver_ant))
 
+                        revisoes_existentes = [int(r[1][1:]) for r in revisoes_anteriores if r[1] and r[1].startswith('r')]
+                        rev_max = max(revisoes_existentes) if revisoes_existentes else -1
+                        rev_atual = int(revisao[1:])
+
+                        if rev_atual < rev_max:
+                            st.error(f"❌ Revisão {revisao} menor que revisão máxima existente (r{rev_max}). Upload não permitido.")
+                            st.stop()
+
+                        if filename in arquivos_existentes:
+                            st.error("Arquivo com este nome completo já existe.")
+                        else:
                             existe_revisao_anterior = any(r[1] != revisao for r in revisoes_anteriores)
                             mesma_revisao_outras_versoes = any(r[1] == revisao and r[2] != versao for r in revisoes_anteriores)
 
@@ -300,11 +316,14 @@ elif st.session_state.authenticated:
                                 for f, _, _ in revisoes_anteriores:
                                     shutil.move(os.path.join(path, f), os.path.join(pasta_revisao, f))
                                 st.info(f"🗂️ Arquivos da revisão anterior movidos para `{pasta_revisao}`")
+
                             elif mesma_revisao_outras_versoes and not confirmar_mesma_revisao:
                                 st.warning("⚠️ Mesma revisão detectada com nova versão. Confirme a caixa para prosseguir.")
                                 st.stop()
+
                             with open(file_path, "wb") as f:
                                 f.write(uploaded_file.read())
+
                             st.success(f"✅ Arquivo `{filename}` salvo com sucesso.")
                             log_action(username, "upload", file_path)
 
