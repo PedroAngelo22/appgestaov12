@@ -278,6 +278,7 @@ elif st.session_state.authenticated:
                     nome_base, revisao, versao = extrair_info_arquivo(filename)
                     if not nome_base:
                         st.error("Nome do arquivo deve conter rXvY.")
+                        st.stop()
                     else:
                         arquivos_existentes = os.listdir(path)
                         nomes_existentes = [f for f in arquivos_existentes if f.startswith(nome_base)]
@@ -302,8 +303,11 @@ elif st.session_state.authenticated:
 
                         if rev_atual < rev_max:
                             st.error(f"❌ Revisão {revisao} menor que revisão máxima existente (r{rev_max}). Upload não permitido.")
-                        elif filename in arquivos_existentes:
+                            st.stop()
+
+                        if filename in arquivos_existentes:
                             st.error("Arquivo com este nome completo já existe.")
+                            st.stop()
                         else:
                             existe_revisao_anterior = any(r[1] != revisao for r in revisoes_anteriores)
                             mesma_revisao_outras_versoes = any(r[1] == revisao and r[2] != versao for r in revisoes_anteriores)
@@ -320,13 +324,14 @@ elif st.session_state.authenticated:
 
                             elif mesma_revisao_outras_versoes and not confirmar_mesma_revisao:
                                 st.warning("⚠️ Mesma revisão detectada com nova versão. Confirme a caixa para prosseguir.")
-                            else:
-                                with open(file_path, "wb") as f:
-                                    f.write(uploaded_file.read())
+                                st.stop()
 
-                                st.success(f"✅ Arquivo `{filename}` salvo com sucesso.")
-                                log_action(username, "upload", file_path)
-                                
+                            with open(file_path, "wb") as f:
+                                f.write(uploaded_file.read())
+
+                            st.success(f"✅ Arquivo `{filename}` salvo com sucesso.")
+                            log_action(username, "upload", file_path)
+                            
     # NAVEGAÇÃO NA SIDEBAR: "Meus Projetos" e "Meus Clientes"
     st.sidebar.markdown("### 🔎 Navegação Rápida")
 
