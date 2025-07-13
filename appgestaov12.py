@@ -310,26 +310,30 @@ elif st.session_state.authenticated:
 
     # NAVEGAÇÃO NA SIDEBAR: "Meus Projetos" e "Meus Clientes"
     st.sidebar.markdown("### 🔎 Navegação Rápida")
-    
+
     if st.sidebar.button("📁 Meus Projetos"):
         for proj in sorted(user_projects):
             proj_path = os.path.join(BASE_DIR, proj)
-            if not os.path.isdir(proj_path): continue
+            if not os.path.isdir(proj_path):
+                continue
 
             with st.expander(f"📁 Projeto: {proj}", expanded=False):
                 for disc in sorted(os.listdir(proj_path)):
                     disc_path = os.path.join(proj_path, disc)
-                    if not os.path.isdir(disc_path): continue
+                    if not os.path.isdir(disc_path):
+                        continue
 
                     with st.expander(f"📂 Disciplina: {disc}", expanded=False):
                         for fase in sorted(os.listdir(disc_path)):
                             fase_path = os.path.join(disc_path, fase)
-                            if not os.path.isdir(fase_path): continue
+                            if not os.path.isdir(fase_path):
+                                continue
 
                             with st.expander(f"📄 Fase: {fase}", expanded=False):
                                 for file in sorted(os.listdir(fase_path)):
                                     full_path = os.path.join(fase_path, file)
-                                    if os.path.isdir(full_path): continue
+                                    if os.path.isdir(full_path):
+                                        continue
 
                                     st.markdown(f"- `{file}`")
                                     with open(full_path, "rb") as f:
@@ -341,7 +345,8 @@ elif st.session_state.authenticated:
                                         f.seek(0)
                                         if "download" in user_permissions:
                                             st.download_button("📥 Baixar", f, file_name=file, key=hash_key(f"proj_dl_{full_path}"))
-                                                if st.sidebar.button("🏢 Meus Clientes"):
+
+    if st.sidebar.button("🏢 Meus Clientes"):
         meus_clientes = set()
         for proj in user_projects:
             res = c.execute("SELECT client FROM projects WHERE name=?", (proj,)).fetchone()
@@ -352,24 +357,29 @@ elif st.session_state.authenticated:
             with st.expander(f"🏢 Cliente: {cliente}", expanded=False):
                 projetos_cliente = [p[0] for p in c.execute("SELECT name FROM projects WHERE client=?", (cliente,)).fetchall()]
                 projetos_cliente = [p for p in projetos_cliente if p in user_projects]
+
                 for proj in sorted(projetos_cliente):
                     proj_path = os.path.join(BASE_DIR, proj)
-                    if not os.path.isdir(proj_path): continue
+                    if not os.path.isdir(proj_path):
+                        continue
 
                     with st.expander(f"📁 Projeto: {proj}", expanded=False):
                         for disc in sorted(os.listdir(proj_path)):
                             disc_path = os.path.join(proj_path, disc)
-                            if not os.path.isdir(disc_path): continue
+                            if not os.path.isdir(disc_path):
+                                continue
 
                             with st.expander(f"📂 Disciplina: {disc}", expanded=False):
                                 for fase in sorted(os.listdir(disc_path)):
                                     fase_path = os.path.join(disc_path, fase)
-                                    if not os.path.isdir(fase_path): continue
+                                    if not os.path.isdir(fase_path):
+                                        continue
 
                                     with st.expander(f"📄 Fase: {fase}", expanded=False):
                                         for file in sorted(os.listdir(fase_path)):
                                             full_path = os.path.join(fase_path, file)
-                                            if os.path.isdir(full_path): continue
+                                            if os.path.isdir(full_path):
+                                                continue
 
                                             st.markdown(f"- `{file}`")
                                             with open(full_path, "rb") as f:
@@ -381,7 +391,7 @@ elif st.session_state.authenticated:
                                                 f.seek(0)
                                                 if "download" in user_permissions:
                                                     st.download_button("📥 Baixar", f, file_name=file, key=hash_key(f"cli_dl_{full_path}"))
-
+    
     # PESQUISA POR PALAVRA-CHAVE (NOME + CONTEÚDO PDF)
     if "download" in user_permissions or "view" in user_permissions:
         st.markdown("### 🔍 Pesquisa de Documentos")
