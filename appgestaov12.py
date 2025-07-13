@@ -278,6 +278,7 @@ elif st.session_state.authenticated:
                     nome_base, revisao, versao = extrair_info_arquivo(filename)
                     if not nome_base:
                         st.error("Nome do arquivo deve conter rXvY.")
+                        st.stop()
                     else:
                         arquivos_existentes = os.listdir(path)
                         nomes_existentes = [f for f in arquivos_existentes if f.startswith(nome_base)]
@@ -288,7 +289,7 @@ elif st.session_state.authenticated:
                             if base_ant == nome_base:
                                 revisoes_anteriores.append((f, rev_ant, ver_ant))
 
-                        # Verificar também revisões dentro da pasta Revisoes
+                        # Verificar também revisões na pasta Revisoes/{nome_base}
                         pasta_revisoes = os.path.join(path, "Revisoes", nome_base)
                         if os.path.isdir(pasta_revisoes):
                             for f in os.listdir(pasta_revisoes):
@@ -306,6 +307,7 @@ elif st.session_state.authenticated:
 
                         if filename in arquivos_existentes:
                             st.error("Arquivo com este nome completo já existe.")
+                            st.stop()
                         else:
                             existe_revisao_anterior = any(r[1] != revisao for r in revisoes_anteriores)
                             mesma_revisao_outras_versoes = any(r[1] == revisao and r[2] != versao for r in revisoes_anteriores)
@@ -314,7 +316,10 @@ elif st.session_state.authenticated:
                                 pasta_revisao = os.path.join(path, "Revisoes", nome_base)
                                 os.makedirs(pasta_revisao, exist_ok=True)
                                 for f, _, _ in revisoes_anteriores:
-                                    shutil.move(os.path.join(path, f), os.path.join(pasta_revisao, f))
+                                    origem = os.path.join(path, f)
+                                    destino = os.path.join(pasta_revisao, f)
+                                    if os.path.exists(origem):
+                                        shutil.move(origem, destino)
                                 st.info(f"🗂️ Arquivos da revisão anterior movidos para `{pasta_revisao}`")
 
                             elif mesma_revisao_outras_versoes and not confirmar_mesma_revisao:
