@@ -340,8 +340,7 @@ elif st.session_state.authenticated:
                                         if file.lower().endswith(".pdf"):
                                             b64 = base64.b64encode(f.read()).decode("utf-8")
                                             href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                                            if st.button("👁️ Visualizar PDF", key=hash_key(f"proj_btn_{full_path}")):
-                                                st.markdown(href, unsafe_allow_html=True)
+                                            st.markdown(href, unsafe_allow_html=True)
                                         f.seek(0)
                                         if "download" in user_permissions:
                                             st.download_button("📥 Baixar", f, file_name=file, key=hash_key(f"proj_dl_{full_path}"))
@@ -386,12 +385,11 @@ elif st.session_state.authenticated:
                                                 if file.lower().endswith(".pdf"):
                                                     b64 = base64.b64encode(f.read()).decode("utf-8")
                                                     href = f'<a href="data:application/pdf;base64,{b64}" target="_blank">👁️ Visualizar PDF</a>'
-                                                    if st.button("👁️ Visualizar PDF", key=hash_key(f"cli_btn_{full_path}")):
-                                                        st.markdown(href, unsafe_allow_html=True)
+                                                    st.markdown(href, unsafe_allow_html=True)
                                                 f.seek(0)
                                                 if "download" in user_permissions:
                                                     st.download_button("📥 Baixar", f, file_name=file, key=hash_key(f"cli_dl_{full_path}"))
-    
+                                                    
     # PESQUISA POR PALAVRA-CHAVE (NOME + CONTEÚDO PDF)
     if "download" in user_permissions or "view" in user_permissions:
         st.markdown("### 🔍 Pesquisa de Documentos")
